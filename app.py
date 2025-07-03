@@ -3,6 +3,7 @@ import os
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 from dotenv import load_dotenv
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -24,7 +25,20 @@ lessons = [
 
 # Track user progress and state (in-memory, resets if app restarts)
 user_state = {}  # Tracks where the user is in the flow: 'start', 'toc', 'lesson', etc.
-user_progress = {}  # Tracks completed lessons for each user
+USER_PROGRESS_FILE = 'user_progress.json'
+
+# Load user progress from file at startup
+try:
+    with open(USER_PROGRESS_FILE, 'r') as f:
+        user_progress = {k: set(v) for k, v in json.load(f).items()}
+except (FileNotFoundError, json.JSONDecodeError):
+    user_progress = {}
+
+# Helper to save user progress to file
+def save_user_progress():
+    with open(USER_PROGRESS_FILE, 'w') as f:
+        # Convert sets to lists for JSON serialization
+        json.dump({k: list(v) for k, v in user_progress.items()}, f)
 
 @app.route('/')
 def home():
@@ -105,6 +119,7 @@ def whatsapp_webhook():
                     completed = user_progress.get(sender, set())
                     completed.add(lesson_num)
                     user_progress[sender] = completed
+                    save_user_progress()  # Save progress to file
                     reply = lessons[lesson_num - 1] + "\n\nReply 'menu' to see the table of contents again, or 'exit' to end."
                     user_state[sender] = 'in_lesson'
                 else:
