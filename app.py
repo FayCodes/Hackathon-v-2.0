@@ -11,6 +11,7 @@ load_dotenv()
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_WHATSAPP_NUMBER = os.getenv('TWILIO_WHATSAPP_NUMBER')
+DAILY_LESSON_SECRET = os.getenv('DAILY_LESSON_SECRET', 'changeme')
 
 app = Flask(__name__)
 
@@ -47,6 +48,15 @@ CERTIFICATE_MESSAGE = (
     "Keep learning and growing!\n\n"
     "If you'd like to receive this certificate again, reply 'certificate'."
 )
+
+# Helper to send WhatsApp message via Twilio
+def send_whatsapp_message(to, body):
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    client.messages.create(
+        body=body,
+        from_=TWILIO_WHATSAPP_NUMBER,
+        to=to
+    )
 
 @app.route('/')
 def home():
@@ -180,6 +190,35 @@ def whatsapp_webhook():
     msg.body(reply)
 
     return str(resp)
+
+# Endpoint for Zapier to trigger daily lesson delivery
+@app.route('/send-daily-lessons', methods=['POST'])
+def send_daily_lessons():
+    # Check secret key in request (header or form)
+    secret = request.headers.get('X-DAILY-SECRET') or request.form.get('secret')
+    if secret != DAILY_LESSON_SECRET:
+        return 'Unauthorized', 401
+
+    sent_count = 0
+    for user, completed in user_progress.items():
+        # Find the next uncompleted lesson
+        next_lesson = None
+        for i in range(1, len(lessons)+1):
+            if i not in completed:
+                next_lesson = i
+                break
+        if next_lesson:
+            # Mark as completed and save
+            completed.add(next_lesson)
+            user_progress[user] = completed
+            save_user_progress()
+            # Send the lesson
+            send_whatsapp_message(user, f"Your daily lesson:\n\n" + lessons[next_lesson-1] + "\n\nReply 'menu' to see all lessons or 'progress' to check your progress.")
+            sent_count += 1
+        elif len(completed) == len(lessons):
+            # All lessons completed, optionally send certificate
+            send_whatsapp_message(user, CERTIFICATE_MESSAGE)
+    return f"Sent daily lessons to {sent_count} users.", 200
 
 # TODO: Add WhatsApp webhook route for Twilio integration
 # TODO: Add user registration and lesson delivery logic
