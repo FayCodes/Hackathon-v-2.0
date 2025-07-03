@@ -22,8 +22,8 @@ lessons = [
     "Lesson 5: Staying Safe Online.\n\nOnline safety is important. Never share your passwords or personal information with strangers. Be careful about what you post on social media. If you receive a suspicious email or message, don't click on any links—delete it instead.\n\nTip: Use strong passwords and change them regularly.\n\nRemember: If something online makes you uncomfortable, talk to a trusted adult or friend."
 ]
 
-# Track user progress (in-memory, resets if app restarts)
-user_progress = {}
+# Track user progress and state (in-memory, resets if app restarts)
+user_state = {}  # Tracks where the user is in the flow: 'start', 'toc', 'lesson', etc.
 
 @app.route('/')
 def home():
@@ -35,19 +35,62 @@ def whatsapp_webhook():
     sender = request.values.get('From', '')
     incoming_msg = request.values.get('Body', '').strip().lower()
 
-    # Get user's current lesson index, default to 0
-    idx = user_progress.get(sender, 0)
+    # Default state is 'start' if user is new
+    state = user_state.get(sender, 'start')
+    reply = ""
 
-    # If user sends 'next', go to next lesson
-    if incoming_msg == 'next':
-        idx += 1
+    if state == 'start':
+        # Greet and ask if user wants to start
+        reply = ("Hello! 👋 This is your 5-minute lesson assistant. "
+                 "Would you like to start learning?\n\n"
+                 "Reply with 'yes' to see the table of contents, or 'no' to exit.")
+        user_state[sender] = 'awaiting_yes_no'
 
-    # If out of lessons, send a completion message
-    if idx >= len(lessons):
-        reply = "Congratulations! You've completed all available lessons. More coming soon!"
+    elif state == 'awaiting_yes_no':
+        if incoming_msg == 'yes':
+            # Show table of contents
+            toc = "Here are the available lessons:\n"
+            for i, lesson in enumerate(lessons, 1):
+                title = lesson.split(".\n\n")[0]
+                toc += f"{i}. {title}\n"
+            toc += "\nReply with the number of the lesson you'd like to explore."
+            reply = toc
+            user_state[sender] = 'awaiting_lesson_choice'
+        elif incoming_msg == 'no':
+            reply = ("No problem! If you change your mind, just say 'hi' or 'start' anytime to begin learning. Have a great day! 😊")
+            user_state[sender] = 'start'  # Reset state
+        else:
+            reply = ("Please reply with 'yes' to see the table of contents, or 'no' to exit.")
+
+    elif state == 'awaiting_lesson_choice':
+        if incoming_msg.isdigit():
+            lesson_num = int(incoming_msg)
+            if 1 <= lesson_num <= len(lessons):
+                reply = lessons[lesson_num - 1] + "\n\nReply 'menu' to see the table of contents again, or 'exit' to end."
+                user_state[sender] = 'in_lesson'
+            else:
+                reply = f"Please reply with a number between 1 and {len(lessons)} to choose a lesson."
+        else:
+            reply = f"Please reply with the number of the lesson you'd like to explore."
+
+    elif state == 'in_lesson':
+        if incoming_msg == 'menu':
+            toc = "Here are the available lessons:\n"
+            for i, lesson in enumerate(lessons, 1):
+                title = lesson.split(".\n\n")[0]
+                toc += f"{i}. {title}\n"
+            toc += "\nReply with the number of the lesson you'd like to explore."
+            reply = toc
+            user_state[sender] = 'awaiting_lesson_choice'
+        elif incoming_msg == 'exit':
+            reply = ("Thank you for learning with me! If you want to start again, just say 'hi' or 'start'. Have a wonderful day! 🌟")
+            user_state[sender] = 'start'
+        else:
+            reply = ("Reply 'menu' to see the table of contents again, or 'exit' to end.")
     else:
-        reply = lessons[idx]
-        user_progress[sender] = idx  # Save progress
+        # Fallback for any unexpected state
+        reply = ("Hello! 👋 This is your 5-minute lesson assistant. Would you like to start learning?\n\nReply with 'yes' to see the table of contents, or 'no' to exit.")
+        user_state[sender] = 'awaiting_yes_no'
 
     # Create a Twilio response object
     resp = MessagingResponse()
