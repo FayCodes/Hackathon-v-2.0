@@ -24,6 +24,7 @@ lessons = [
 
 # Track user progress and state (in-memory, resets if app restarts)
 user_state = {}  # Tracks where the user is in the flow: 'start', 'toc', 'lesson', etc.
+user_progress = {}  # Tracks completed lessons for each user
 
 @app.route('/')
 def home():
@@ -37,22 +38,29 @@ def whatsapp_webhook():
 
     # Default state is 'start' if user is new
     state = user_state.get(sender, 'start')
+    completed = user_progress.get(sender, set())
     reply = ""
 
     if state == 'start':
-        # Greet and ask if user wants to start
-        reply = ("Hello! 👋 This is your 5-minute lesson assistant. "
-                 "Would you like to start learning?\n\n"
-                 "Reply with 'yes' to see the table of contents, or 'no' to exit.")
+        # Greet and show progress if returning user
+        if completed:
+            reply = (f"Welcome back! 👋 You have completed {len(completed)} out of {len(lessons)} lessons. "
+                     "Would you like to continue learning?\n\n"
+                     "Reply with 'yes' to see the table of contents, or 'no' to exit.")
+        else:
+            reply = ("Hello! 👋 This is your 5-minute lesson assistant. "
+                     "Would you like to start learning?\n\n"
+                     "Reply with 'yes' to see the table of contents, or 'no' to exit.")
         user_state[sender] = 'awaiting_yes_no'
 
     elif state == 'awaiting_yes_no':
         if incoming_msg == 'yes':
-            # Show table of contents
+            # Show table of contents with progress
             toc = "Here are the available lessons:\n"
             for i, lesson in enumerate(lessons, 1):
                 title = lesson.split(".\n\n")[0]
-                toc += f"{i}. {title}\n"
+                check = "✅" if i in completed else ""
+                toc += f"{i}. {title} {check}\n"
             toc += "\nReply with the number of the lesson you'd like to explore."
             reply = toc
             user_state[sender] = 'awaiting_lesson_choice'
@@ -66,6 +74,10 @@ def whatsapp_webhook():
         if incoming_msg.isdigit():
             lesson_num = int(incoming_msg)
             if 1 <= lesson_num <= len(lessons):
+                # Mark lesson as completed
+                completed = user_progress.get(sender, set())
+                completed.add(lesson_num)
+                user_progress[sender] = completed
                 reply = lessons[lesson_num - 1] + "\n\nReply 'menu' to see the table of contents again, or 'exit' to end."
                 user_state[sender] = 'in_lesson'
             else:
@@ -76,9 +88,11 @@ def whatsapp_webhook():
     elif state == 'in_lesson':
         if incoming_msg == 'menu':
             toc = "Here are the available lessons:\n"
+            completed = user_progress.get(sender, set())
             for i, lesson in enumerate(lessons, 1):
                 title = lesson.split(".\n\n")[0]
-                toc += f"{i}. {title}\n"
+                check = "✅" if i in completed else ""
+                toc += f"{i}. {title} {check}\n"
             toc += "\nReply with the number of the lesson you'd like to explore."
             reply = toc
             user_state[sender] = 'awaiting_lesson_choice'
