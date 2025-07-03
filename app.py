@@ -40,6 +40,14 @@ def save_user_progress():
         # Convert sets to lists for JSON serialization
         json.dump({k: list(v) for k, v in user_progress.items()}, f)
 
+CERTIFICATE_MESSAGE = (
+    "🎉 Congratulations! 🎉\n\n"
+    "You have completed all available lessons in the WhatsApp 5-Minute Daily Lesson Assistant.\n"
+    "This is your digital certificate of completion.\n\n"
+    "Keep learning and growing!\n\n"
+    "If you'd like to receive this certificate again, reply 'certificate'."
+)
+
 @app.route('/')
 def home():
     return 'WhatsApp 5-Minute Daily Lesson Assistant is running!'
@@ -55,14 +63,21 @@ def whatsapp_webhook():
     completed = user_progress.get(sender, set())
     reply = ""
 
-    # --- New: Handle 'progress' and 'help' commands from any state ---
-    if incoming_msg == 'help':
+    # --- New: Handle 'certificate' command from any state ---
+    if incoming_msg == 'certificate':
+        if len(completed) == len(lessons) and len(lessons) > 0:
+            reply = CERTIFICATE_MESSAGE
+        else:
+            reply = "You need to complete all lessons to receive your certificate! Keep going!"
+    # --- Existing: Handle 'help' and 'progress' commands from any state ---
+    elif incoming_msg == 'help':
         reply = (
             "Here are some things you can do:\n"
             "- Say 'yes' to start learning or see the table of contents.\n"
             "- Reply with a lesson number to view that lesson.\n"
             "- Reply 'menu' to see the table of contents again.\n"
             "- Reply 'progress' to see your learning progress.\n"
+            "- Reply 'certificate' to receive your certificate (after completing all lessons).\n"
             "- Reply 'exit' to end the session.\n"
             "- Say 'hi' or 'start' to begin again anytime."
         )
@@ -71,11 +86,18 @@ def whatsapp_webhook():
             completed_list = sorted(list(completed))
             completed_titles = [lessons[i-1].split(".\n\n")[0] for i in completed_list]
             completed_str = '\n'.join([f"{i}. {title}" for i, title in zip(completed_list, completed_titles)])
-            reply = (
-                f"You have completed {len(completed)} out of {len(lessons)} lessons:\n"
-                f"{completed_str}\n\n"
-                "Keep going! Reply 'menu' to see the table of contents or a lesson number to continue."
-            )
+            if len(completed) == len(lessons):
+                reply = (
+                    f"You have completed ALL {len(lessons)} lessons!\n"
+                    f"{completed_str}\n\n"
+                    "Reply 'certificate' to receive your digital certificate."
+                )
+            else:
+                reply = (
+                    f"You have completed {len(completed)} out of {len(lessons)} lessons:\n"
+                    f"{completed_str}\n\n"
+                    "Keep going! Reply 'menu' to see the table of contents or a lesson number to continue."
+                )
         else:
             reply = (
                 "You haven't completed any lessons yet.\n"
@@ -120,7 +142,11 @@ def whatsapp_webhook():
                     completed.add(lesson_num)
                     user_progress[sender] = completed
                     save_user_progress()  # Save progress to file
-                    reply = lessons[lesson_num - 1] + "\n\nReply 'menu' to see the table of contents again, or 'exit' to end."
+                    # If this was the last lesson, send certificate message
+                    if len(completed) == len(lessons):
+                        reply = lessons[lesson_num - 1] + "\n\n" + CERTIFICATE_MESSAGE
+                    else:
+                        reply = lessons[lesson_num - 1] + "\n\nReply 'menu' to see the table of contents again, or 'exit' to end."
                     user_state[sender] = 'in_lesson'
                 else:
                     reply = f"Please reply with a number between 1 and {len(lessons)} to choose a lesson."
